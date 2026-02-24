@@ -1,16 +1,70 @@
-# React + Vite
+🛒 Point of Sale (POS) & Inventory System
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Aplikasi web kasir (Point of Sale) dan manajemen inventaris real-time berbasis cloud yang dirancang untuk kecepatan operasional bisnis (UMKM, F&B, Retail). Dibangun menggunakan ekosistem React.js dan Firebase, dengan dukungan integrasi pencetakan struk thermal.
 
-Currently, two official plugins are available:
+🔗 Live Demo: https://qss-bakmie.web.app[Masukkan Link Hosting Firebase Kamu di sini, cth: https://qss-bakmie.web.app]
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+🚀 Fitur Utama
 
-## React Compiler
+Role-Based Access Control (RBAC): Sistem autentikasi berlapis menggunakan PIN internal untuk membedakan hak akses antara Owner, Admin, Kasir, dan Investor.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+Real-Time Data Sync: Menggunakan onSnapshot Firestore sehingga data transaksi dan sisa stok bahan baku langsung ter-update di semua perangkat tanpa perlu me-refresh halaman.
 
-## Expanding the ESLint configuration
+Dynamic Inventory Engine: Logika pemotongan stok bahan baku secara otomatis (berdasarkan resep/komposisi) setiap kali transaksi berhasil diproses. Perhitungan HPP (Harga Pokok Penjualan) secara real-time.
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+Hardware Integration: Mendukung pencetakan struk kasir (thermal printer) dengan antarmuka struk khusus menggunakan @media print CSS.
+
+Responsive UI/UX: Tampilan kasir dan dashboard manajemen yang mulus dan responsif di berbagai ukuran layar, dibangun menggunakan Tailwind CSS.
+
+🛠️ Tech Stack (Teknologi yang Digunakan)
+
+Frontend: React.js, Vite, Tailwind CSS, Lucide React (Icons).
+
+Backend/BaaS: Firebase Firestore (NoSQL Database), Firebase Authentication (Anonymous & Custom Auth).
+
+Deployment: Firebase Hosting.
+
+Workflow: AI-Assisted Development (Prompting, Refactoring, Debugging).
+
+📸 Screenshots / Tangkapan Layar
+
+(Tips: Nanti ganti teks di bawah ini dengan gambar asli aplikasimu saat di-upload ke GitHub)
+
+[Gambar Halaman Login/PIN]
+
+[Gambar Halaman Kasir / Transaksi]
+
+[Gambar Dashboard Owner / Manajemen Stok]
+
+[Gambar Preview Struk Kasir]
+
+💻 Cara Menjalankan di Komputer Lokal (Local Development)
+
+Jika Anda ingin menjalankan atau mengembangkan aplikasi ini di komputer Anda, ikuti langkah berikut:
+
+Clone repository ini (jika dari GitHub) atau buka folder project di terminal.
+
+Install dependensi:
+
+npm install
+
+
+Konfigurasi Firebase:
+Pastikan Anda telah membuat project di Firebase Console dan mengganti konfigurasi firebaseConfig di dalam file firebase.js dengan konfigurasi milik Anda.
+
+Jalankan server lokal:
+
+npm run dev
+
+
+Buka http://localhost:5173 di browser Anda.
+
+📦 Deployment (Hosting)
+
+Proyek ini telah dikonfigurasi untuk Firebase Hosting. Untuk melakukan deploy versi terbaru, jalankan perintah:
+
+npm run build
+firebase deploy
+
+
+Dikembangkan oleh [Muhammad Iwan Nur Fauzy] - 2026

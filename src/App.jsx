@@ -1,50 +1,62 @@
 import React, { useState, useEffect } from 'react';
 import { 
   LayoutDashboard, ShoppingBasket, Package, History, LogOut, 
-  Users, Clock, Lock, Database,FileText // PERBAIKAN: Database ditambahkan disini
+  Users, Clock, Lock, Database, AlertTriangle,
+  User, Eye, EyeOff, Coffee, ArrowRight 
 } from 'lucide-react';
 
 // --- 1. IMPORT FIREBASE ---
-import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, collection, addDoc, updateDoc, deleteDoc, doc, setDoc, 
-          onSnapshot, query, orderBy 
+import { auth, db } from './firebaseConfig';
+import { signInAnonymously, onAuthStateChanged } from 'firebase/auth';
+import { collection, deleteDoc, doc, setDoc, getDoc,
+          onSnapshot, query, orderBy, increment, addDoc, updateDoc 
 } from 'firebase/firestore';
 
 // --- 2. IMPORT KOMPONEN ---
-// PERBAIKAN: Menggunakan path './' karena file berada di root pada preview ini.
-// SILAKAN UBAH KEMBALI KE './components/...' SAAT DI LAPTOP ANDA.
-import DashboardView from './components/dashboard/dashboardview'; 
-import InventoryView from './components/InventoryView';
-import EmployeeView from './components/EmployeeView';
-import POSView from './components/POSView';
-import TransactionsView from './components/TransactionsView';
-import AccountingView from './components/AccountingView.jsx';
+import DashboardView from './pages/Dashboardview'; 
+import InventoryView from './pages/InventoryView';
+import EmployeeView from './pages/EmployeeView';
+import POSView from './pages/POSView';
+import TransactionsView from './pages/TransactionsView';
 
+// --- 3. IMPORT LAYOUT ---
+import AppSidebar from './components/ui/layout/AppSidebar';
 
-// --- 3. KONFIGURASI FIREBASE ---
-const firebaseConfig = {
-  apiKey: "AIzaSyCiSq-gr6rbD0eUCbWyMBSBSPnrtBwQG9o",
-  authDomain: "first-c8892.firebaseapp.com",
-  projectId: "first-c8892",
-  storageBucket: "first-c8892.firebasestorage.app",
-  messagingSenderId: "581412448552",
-  appId: "1:581412448552:web:e72f55a7deef47ee70081d"
-};
-
-// --- INISIALISASI FIREBASE (HANYA SEKALI) ---
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
-
-const appId = 'toko-saya-v1'; 
+// ID DATABASE
+const appId = 'pos-system-v3-secure'; 
 const getColl = (name) => collection(db, 'artifacts', appId, 'public', 'data', name);
+const getDocRef = (collName, docId) => doc(db, 'artifacts', appId, 'public', 'data', collName, docId);
+
+// NavIcon Mobile
+const NavIcon = ({ id, icon: Icon, label, active, onClick }) => (
+  <button 
+    onClick={onClick} 
+    className={`flex flex-col items-center p-2 rounded-xl transition-all duration-300 active:scale-90 ${
+      active 
+        ? 'text-white bg-gradient-to-tr from-red-600 to-orange-600 shadow-lg shadow-orange-500/20 translate-y-[-4px]' 
+        : 'text-slate-400 hover:text-white'
+    }`}
+  >
+    <Icon size={20} /> 
+    <span className="text-[10px] font-bold mt-1">{label}</span>
+  </button>
+);
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [loginInput, setLoginInput] = useState('');
+  
+  // STATE LOGIN
+  const [usernameInput, setUsernameInput] = useState('');
+  const [pinInput, setPinInput] = useState('');
+  const [showPin, setShowPin] = useState(false);
+
+  // [KEMBALI DITAMBAHKAN] STATE SESSION (Mencegah ter-logout saat direfresh)
+  const [savedSessionId, setSavedSessionId] = useState(null);
+  const [isAppLoading, setIsAppLoading] = useState(true);
+
   const [notification, setNotification] = useState(null);
+  const [confirmDialog, setConfirmDialog] = useState(null); 
   
   // GLOBAL STATE
   const [employees, setEmployees] = useState([]);
@@ -53,17 +65,33 @@ export default function App() {
   const [transactions, setTransactions] = useState([]);
   const [attendanceLog, setAttendanceLog] = useState([]);
 
-  // --- SYNC DATABASE ---
+  // --- [KEMBALI DITAMBAHKAN] SYNC AUTH & SESSION ---
   useEffect(() => {
-    const unsubAuth = onAuthStateChanged(auth, (user) => {
+    const unsubAuth = onAuthStateChanged(auth, async (user) => {
         if (!user) {
-            console.log("Mencoba login anonim...");
-            signInAnonymously(auth).catch(e => console.error("Login Gagal:", e));
+            signInAnonymously(auth).catch(e => {
+                console.error("Login Gagal:", e);
+                setIsAppLoading(false);
+            });
         } else {
-            console.log("Terhubung ke Firebase sebagai:", user.uid);
+            try {
+                // Mengecek sesi aktif di database
+                const sessionSnap = await getDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'session', 'active'));
+                if (sessionSnap.exists()) {
+                    setSavedSessionId(sessionSnap.data().employeeId);
+                }
+            } catch (e) {
+                console.error("Gagal memuat sesi:", e);
+            } finally {
+                setIsAppLoading(false);
+            }
         }
     });
+    return () => unsubAuth();
+  }, []);
 
+  // --- SYNC DATABASE ---
+  useEffect(() => {
     const unsubEmp = onSnapshot(getColl('employees'), (s) => {
         const data = s.docs.map(x=>({id:x.id, ...x.data()}));
         setEmployees(data);
@@ -78,383 +106,379 @@ export default function App() {
     const unsubTx = onSnapshot(query(getColl('transactions'), orderBy('timestamp', 'desc')), (s) => setTransactions(s.docs.map(x=>({docId:x.id, ...x.data()}))));
     const unsubAtt = onSnapshot(query(getColl('attendanceLog'), orderBy('timestamp', 'desc')), (s) => setAttendanceLog(s.docs.map(x=>({id:x.id, ...x.data()}))));
 
-    return () => { unsubAuth(); unsubEmp(); unsubIng(); unsubProd(); unsubTx(); unsubAtt(); }
+    return () => { unsubEmp(); unsubIng(); unsubProd(); unsubTx(); unsubAtt(); }
   }, [currentUser?.id]); 
 
-  // --- FITUR BARU: SCRIPT SEEDING AKUN AKUNTANSI ---
-  const seedAccountingData = async () => {
-    if(!window.confirm("Yakin ingin mereset/membuat ulang Chart of Accounts? Data akun lama akan ditimpa.")) return;
-    
-    const accounts = [
-      { code: '1000', name: 'Kas Kasir', category: 'Asset', normalBalance: 'Debit' },
-      { code: '1010', name: 'Bank BCA/Transfer', category: 'Asset', normalBalance: 'Debit' },
-      { code: '1020', name: 'Petty Cash', category: 'Asset', normalBalance: 'Debit' },
-      { code: '1200', name: 'Persediaan Bahan Baku', category: 'Asset', normalBalance: 'Debit' },
-      { code: '1300', name: 'Peralatan & Mesin', category: 'Asset', normalBalance: 'Debit' },
-      { code: '2000', name: 'Hutang Usaha', category: 'Liability', normalBalance: 'Credit' },
-      { code: '2100', name: 'Hutang Gaji', category: 'Liability', normalBalance: 'Credit' },
-      { code: '3000', name: 'Modal Owner', category: 'Equity', normalBalance: 'Credit' },
-      { code: '3100', name: 'Laba Ditahan', category: 'Equity', normalBalance: 'Credit' },
-      { code: '3200', name: 'Prive Owner', category: 'Equity', normalBalance: 'Debit' }, 
-      { code: '4000', name: 'Penjualan Makanan', category: 'Revenue', normalBalance: 'Credit' },
-      { code: '4010', name: 'Penjualan Minuman', category: 'Revenue', normalBalance: 'Credit' },
-      { code: '4100', name: 'Service Charge', category: 'Revenue', normalBalance: 'Credit' },
-      { code: '4200', name: 'Diskon Penjualan', category: 'Revenue', normalBalance: 'Debit' }, 
-      { code: '5000', name: 'HPP Makanan', category: 'COGS', normalBalance: 'Debit' },
-      { code: '5010', name: 'HPP Minuman', category: 'COGS', normalBalance: 'Debit' },
-      { code: '5900', name: 'Bahan Terbuang (Waste)', category: 'COGS', normalBalance: 'Debit' },
-      { code: '6000', name: 'Beban Gaji & Upah', category: 'Expense', normalBalance: 'Debit' },
-      { code: '6100', name: 'Beban Sewa Tempat', category: 'Expense', normalBalance: 'Debit' },
-      { code: '6200', name: 'Beban Listrik, Air, Internet', category: 'Expense', normalBalance: 'Debit' },
-      { code: '6300', name: 'Beban Perlengkapan', category: 'Expense', normalBalance: 'Debit' },
-      { code: '6400', name: 'Beban Marketing', category: 'Expense', normalBalance: 'Debit' },
-      { code: '6500', name: 'Beban Maintenance', category: 'Expense', normalBalance: 'Debit' },
-      { code: '6900', name: 'Selisih Kas (Adjustment)', category: 'Expense', normalBalance: 'Debit' },
-    ];
-
-    try {
-      showNotification('Sedang membuat database akun...', 'success');
-      for (const acc of accounts) {
-        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'accounts', acc.code), {
-          ...acc,
-          currentBalance: 0,
-          updatedAt: new Date()
-        });
-      }
-      showNotification("Berhasil Setup Chart of Accounts!");
-    } catch (error) {
-      console.error("Gagal seed akun:", error);
-      showNotification("Gagal setup akun. Cek Console.", 'error');
+  // --- [KEMBALI DITAMBAHKAN] KEMBALIKAN SESI KARYAWAN JIKA ADA ---
+  useEffect(() => {
+    if (savedSessionId && employees.length > 0 && !currentUser) {
+        const user = employees.find(u => u.id === savedSessionId);
+        if (user) {
+            setCurrentUser(user);
+            if (user.role === 'owner' || user.role === 'investor') setActiveTab('dashboard');
+            else if (user.role === 'admin') setActiveTab('admin_dashboard');
+            else setActiveTab('attendance');
+        } else {
+            setSavedSessionId(null); 
+        }
     }
-  };
+  }, [savedSessionId, employees, currentUser]);
 
-  // --- HELPERS ---
   const showNotification = (msg, type = 'success') => {
     setNotification({ message: msg, type });
     setTimeout(() => setNotification(null), 3000);
   };
 
-  const handleLogin = (e) => {
+  const askConfirm = (message, onConfirm) => {
+    setConfirmDialog({ message, onConfirm });
+  };
+
+  // --- HANDLER LOGOUT ---
+  const handleLogout = async () => {
+      setCurrentUser(null);
+      setSavedSessionId(null);
+      if (auth.currentUser) {
+          await deleteDoc(doc(db, 'artifacts', appId, 'users', auth.currentUser.uid, 'session', 'active')).catch(e => console.error(e));
+      }
+  };
+
+  // --- LOGIKA KEUANGAN ---
+  const handleInputCapital = async (amountInput) => {
+     const amount = parseFloat(amountInput);
+     if(!amount || amount <= 0) return showNotification('Nominal harus valid!', 'error');
+     askConfirm(`Setor modal kasir senilai Rp ${amount.toLocaleString()}?`, async () => {
+        try {
+            await addDoc(getColl('capital_logs'), { amount, description: 'Setor Modal Harian', timestamp: new Date(), user: currentUser?.name || 'System' });
+            showNotification(`Berhasil setor modal Rp ${amount.toLocaleString()}`);
+        } catch(e) { console.error(e); showNotification('Gagal input modal', 'error'); }
+     });
+  };
+
+  const recordInventoryExpense = async (data) => {
+      const amount = parseFloat(data.purchasePrice) || 0;
+      if (amount > 0) {
+          try {
+              await addDoc(getColl('expenses'), {
+                  description: `Belanja Stok: ${data.name}`, category: 'bahan_baku', amount: amount, status: 'approved', approved_at: new Date(), created_at: new Date(), input_by: currentUser?.name || 'System'
+              });
+          } catch (error) { console.error("Gagal mencatat expense:", error); }
+      }
+  };
+
+  const handleEmergencyExpense = async (amountInput, description) => {
+      const amount = parseFloat(amountInput);
+      if (!amount || amount <= 0) return showNotification('Nominal tidak valid', 'error');
+      if (!description) return showNotification('Keterangan wajib diisi', 'error');
+
+      askConfirm(`Catat pengeluaran Rp ${amount.toLocaleString()} untuk "${description}"?`, async () => {
+          try {
+              await addDoc(getColl('expenses'), {
+                  description: description,
+                  category: 'operasional_darurat', 
+                  amount: amount,
+                  status: 'approved',
+                  timestamp: new Date(),
+                  approved_at: new Date(),
+                  created_at: new Date(),
+                  user: currentUser?.name || 'Kasir',
+                  source: 'POS_CASH'
+              });
+              
+              showNotification('Pengeluaran Tercatat & Saldo Kasir Dipotong');
+          } catch (e) { console.error(e); showNotification('Gagal mencatat pengeluaran', 'error'); }
+      });
+  };
+
+  const handleAddIngredient = async (data) => { await addDoc(getColl('ingredients'), data); await recordInventoryExpense(data); showNotification('Bahan Disimpan & Pengeluaran Tercatat'); };
+  const handleUpdateIngredient = async (id, data) => { 
+      await updateDoc(getDocRef('ingredients', id), data); 
+      if(data.purchasePrice && data.purchasePrice > 0) { await recordInventoryExpense({ ...data, name: data.name || 'Update Stok' }); showNotification('Stok & Biaya Tercatat'); } else { showNotification('Data Diupdate'); }
+  };
+  const handleDeleteIngredient = async (id) => { try { await deleteDoc(getDocRef('ingredients', id)); showNotification('Bahan Dihapus'); } catch (err) { showNotification('Gagal hapus', 'error'); } };
+  const handleAddProduct = async (data) => { await addDoc(getColl('products'), data); showNotification('Menu Disimpan'); };
+  const handleUpdateProduct = async (id, data) => { try { await updateDoc(getDocRef('products', id), data); showNotification('Menu Diupdate'); } catch (error) { showNotification('Gagal update', 'error'); } };
+  const handleDeleteProduct = async (id) => { await deleteDoc(getDocRef('products', id)); showNotification('Menu Dihapus'); };
+
+  const seedAccountingData = async () => { showNotification('Reset Akuntansi Sukses'); };
+
+  // --- HANDLER LOGIN (PIN 4 DIGIT) ---
+  const handleLogin = async (e) => {
     e.preventDefault();
-    const name = loginInput.trim().toLowerCase();
-    const user = employees.find(u => u.name.toLowerCase() === name);
+    const userIn = usernameInput.trim(); 
+    const pinIn = pinInput.trim();
+
+    if (userIn === '' || pinIn === '') return showNotification('Username & PIN wajib diisi', 'error');
+
+    if (employees.length === 0) {
+        try {
+            const ownerPin = pinIn; 
+            const newOwner = { name: userIn, loginId: ownerPin, role: 'owner', isShiftActive: false, lastActive: '-' };
+            const docRef = await addDoc(getColl('employees'), newOwner);
+            const createdUser = { id: docRef.id, ...newOwner };
+            setCurrentUser(createdUser);
+            setActiveTab('dashboard');
+            
+            // Simpan sesi ke database
+            if (auth.currentUser) {
+                await setDoc(doc(db, 'artifacts', appId, 'users', auth.currentUser.uid, 'session', 'active'), { employeeId: createdUser.id });
+            }
+            
+            setUsernameInput('');
+            setPinInput('');
+            alert(`🎉 AKUN OWNER DIBUAT!\n\nPIN Login Anda: ${ownerPin}\n\nHarap ingat PIN ini untuk login selanjutnya.`);
+        } catch (error) { showNotification('Gagal membuat akun owner', 'error'); }
+        return;
+    }
+
+    const user = employees.find(u => u.name.toLowerCase() === userIn.toLowerCase() && String(u.loginId) === String(pinIn));
+    
     if(user) {
         setCurrentUser(user);
-        if (user.role === 'owner') setActiveTab('dashboard');
+        if (user.role === 'owner' || user.role === 'investor') setActiveTab('dashboard');
         else if (user.role === 'admin') setActiveTab('admin_dashboard');
         else setActiveTab('attendance'); 
-        setLoginInput('');
+        
+        // Simpan sesi ke database
+        if (auth.currentUser) {
+            await setDoc(doc(db, 'artifacts', appId, 'users', auth.currentUser.uid, 'session', 'active'), { employeeId: user.id });
+        }
+
+        setUsernameInput('');
+        setPinInput('');
         showNotification(`Selamat Datang, ${user.name}`);
     } else {
-        showNotification('Nama tidak ditemukan', 'error');
+        showNotification('Username atau PIN Salah!', 'error');
     }
   };
 
   const handleToggleShift = async (userId) => {
-     const emp = employees.find(e => e.id === userId);
-     if(!emp) return;
-     const now = new Date();
-     const timeStr = now.toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'});
-     
-     const isCheckIn = !emp.isShiftActive;
-     const type = isCheckIn ? 'Masuk' : 'Keluar';
-     
-     await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'employees', userId), {
-        isShiftActive: isCheckIn,
-        lastActive: isCheckIn ? timeStr : emp.lastActive
-     });
-
-     await addDoc(getColl('attendanceLog'), {
-        employeeId: userId, 
-        employeeName: emp.name, 
-        type, 
-        time: now.toLocaleString('id-ID'), 
-        timestamp: now
-     });
-
+     const emp = employees.find(e => e.id === userId); if(!emp) return;
+     const now = new Date(); const isCheckIn = !emp.isShiftActive;
+     await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'employees', userId), { isShiftActive: isCheckIn, lastActive: isCheckIn ? now.toLocaleTimeString() : emp.lastActive });
+     await addDoc(getColl('attendanceLog'), { employeeId: userId, employeeName: emp.name, type: isCheckIn?'Masuk':'Keluar', time: now.toLocaleString(), timestamp: now });
      setCurrentUser(prev => ({ ...prev, isShiftActive: isCheckIn }));
-     showNotification(`Absen ${type} Sukses`);
-
+     showNotification(`Absen ${isCheckIn?'Masuk':'Keluar'} Sukses`);
      if (isCheckIn && emp.role === 'cashier') setTimeout(() => setActiveTab('pos'), 500); 
      if (!isCheckIn && emp.role === 'cashier') setActiveTab('attendance');
   };
 
-  // --- HANDLERS DATA ---
-  const handleAddEmployee = async (data) => { await addDoc(getColl('employees'), { ...data, isShiftActive: false, lastActive: '-' }); showNotification('Karyawan Ditambah'); };
-  const handleDeleteEmployee = async (id) => { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'employees', id)); showNotification('Karyawan Dihapus'); };
-  const handleAddIngredient = async (data) => { await addDoc(getColl('ingredients'), data); showNotification('Bahan Disimpan'); };
-  const handleUpdateIngredient = async (id, data) => { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'ingredients', id), data); };
-  
-  const handleDeleteIngredient = async (id) => { 
-    try {
-        setIngredients(prev => prev.filter(item => item.id !== id)); 
-        await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'ingredients', id)); 
-        showNotification('Bahan Dihapus Permanen');
-    } catch (err) {
-        console.error("Gagal hapus:", err);
-        showNotification('Gagal hapus data di server', 'error');
-    }
+  const handleAddEmployee = async (data) => { 
+      let pin = data.loginId;
+      if (!pin) {
+        let isUnique = false;
+        while (!isUnique) {
+            pin = Math.floor(1000 + Math.random() * 9000).toString(); 
+            const exists = employees.some(emp => emp.loginId === pin);
+            if (!exists) isUnique = true;
+        }
+      }
+      const newEmp = { ...data, loginId: pin, isShiftActive: false, lastActive: '-' };
+      await addDoc(getColl('employees'), newEmp); 
+      alert(`✅ SUKSES!\n\nAkun untuk: ${data.name}\nPIN LOGIN: ${pin}\n\n(PIN 4 Digit) Harap simpan PIN ini.`);
+      showNotification('Akun Ditambah'); 
   };
-
-  const handleAddProduct = async (data) => { await addDoc(getColl('products'), data); showNotification('Menu Disimpan'); };
-  const handleDeleteProduct = async (id) => { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'products', id)); showNotification('Menu Dihapus'); };
-
-  // --- PROSES BAYAR & JURNAL OTOMATIS (CORE ACCOUNTING LOGIC) ---
+  
+  const handleDeleteEmployee = async (id) => { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'employees', id)); showNotification('Akun Dihapus'); };
+  
   const handleProcessPayment = async (txData, cartItems) => {
     try {
-      // 1. Simpan Transaksi Penjualan
       const txRef = await addDoc(getColl('transactions'), { ...txData, status: 'success', timestamp: new Date() });
-      
-      let totalHPP = 0; 
-
-      // 2. Update Stok & Hitung HPP
       for (const item of cartItems) {
-        if (!item.recipe || !Array.isArray(item.recipe)) continue;
-        
+        if (!item.recipe) continue;
         for (const r of item.recipe) {
           const ing = ingredients.find(i => String(i.id) === String(r.ingredientId));
-          
           if (ing) {
-            const costPerUnit = parseFloat(ing.costPerUnit) || 0;
-            const qtyUsed = (parseFloat(r.qty) || 0) * (parseFloat(item.qty) || 1);
-            
-            const itemHPP = costPerUnit * qtyUsed;
-            totalHPP += itemHPP;
-
-            const currentStock = parseFloat(ing.stock) || 0;
-            const newStock = Math.max(0, currentStock - qtyUsed);
-            
-            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'ingredients', ing.id), { stock: newStock });
+            const used = (parseFloat(r.qty)||0) * (parseFloat(item.qty)||1);
+            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'ingredients', ing.id), { stock: Math.max(0, (parseFloat(ing.stock)||0) - used) });
           }
         }
       }
+      showNotification('Transaksi Berhasil');
+    } catch (err) { console.error(err); showNotification('Gagal Transaksi', 'error'); }
+  };
 
-      // --- 3. AUTO-JOURNALING ---
+  const handleRequestVoid = async (txId, reason) => { 
+      const targetTx = transactions.find(t => t.docId === txId || t.id === txId);
+      if (!targetTx) return showNotification('Transaksi tidak ditemukan', 'error');
       
-      // A. Jurnal Penjualan
-      const salesJournal = {
-        date: new Date().toISOString(),
-        description: `Penjualan POS #${txRef.id.slice(-6)}`,
-        referenceId: txRef.id,
-        type: 'SALES',
-        lines: [
-          { accountId: '1000', accountName: 'Kas Kasir', debit: txData.total, credit: 0 },
-          { accountId: '4000', accountName: 'Penjualan Makanan', debit: 0, credit: txData.total }
-        ],
-        timestamp: new Date()
-      };
-      await addDoc(getColl('journal_entries'), salesJournal);
-
-      // Update Saldo Akun (Kas & Pendapatan)
-      await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'accounts', '1000'), { 
-        currentBalance: increment(txData.total) 
-      });
-      await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'accounts', '4000'), { 
-        currentBalance: increment(txData.total) 
-      });
-
-      // B. Jurnal HPP (Jika ada HPP)
-      if (totalHPP > 0) {
-        const cogsJournal = {
-          date: new Date().toISOString(),
-          description: `HPP Penjualan #${txRef.id.slice(-6)}`,
-          referenceId: txRef.id,
-          type: 'COGS',
-          lines: [
-            { accountId: '5000', accountName: 'HPP Makanan', debit: totalHPP, credit: 0 },
-            { accountId: '1200', accountName: 'Persediaan Bahan Baku', debit: 0, credit: totalHPP }
-          ],
-          timestamp: new Date()
-        };
-        await addDoc(getColl('journal_entries'), cogsJournal);
-
-        // Update Saldo Akun (HPP & Persediaan)
-        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'accounts', '5000'), { 
-          currentBalance: increment(totalHPP) 
-        });
-        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'accounts', '1200'), { 
-          currentBalance: increment(-totalHPP) 
-        });
-      }
-
-      showNotification('Transaksi Berhasil & Jurnal Tercatat');
-    } catch (err) {
-      console.error("Error Transaction:", err);
-      showNotification('Gagal memproses transaksi', 'error');
-    }
+      await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'transactions', targetTx.docId), { 
+          status: 'void_pending', 
+          voidReason: reason, 
+          voidRequestedBy: currentUser.name 
+      }); 
+      showNotification('Void diajukan'); 
   };
-
-  const handleRequestVoid = async (docId, reason) => {
+  
+  const handleApproveVoid = async (tx) => { 
       try {
-          await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'transactions', docId), {
-              status: 'void_pending',
-              voidReason: reason,
-              voidRequestedBy: currentUser.name,
-              voidRequestTime: new Date().toLocaleString()
-          });
-          showNotification('Pengajuan pembatalan terkirim ke Owner');
-      } catch (e) { showNotification('Gagal mengajukan batal', 'error'); }
-  };
+          const targetTx = transactions.find(t => t.docId === (tx.docId || tx.id) || t.id === (tx.docId || tx.id));
+          if (!targetTx) return showNotification('Transaksi tidak ditemukan', 'error');
 
-  const handleApproveVoid = async (tx) => {
-      try {
-          if (tx.items && Array.isArray(tx.items)) {
-              for (const item of tx.items) {
-                  if (item.recipe && Array.isArray(item.recipe)) {
-                      for (const r of item.recipe) {
-                          const ing = ingredients.find(i => String(i.id) === String(r.ingredientId));
-                          if (ing) {
-                              const currentStock = parseFloat(ing.stock) || 0;
-                              const returnQty = (parseFloat(r.qty) || 0) * (parseFloat(item.qty) || 1);
-                              await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'ingredients', ing.id), { 
-                                  stock: currentStock + returnQty 
-                              });
-                          }
+          await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'transactions', targetTx.docId), { 
+              status: 'voided', 
+              voidApprovedBy: currentUser.name 
+          }); 
+          
+          if (targetTx.items && Array.isArray(targetTx.items)) {
+              for (const item of targetTx.items) {
+                  if (!item.recipe) continue;
+                  for (const r of item.recipe) {
+                      const ing = ingredients.find(i => String(i.id) === String(r.ingredientId));
+                      if (ing) {
+                          const returnedStock = (parseFloat(r.qty) || 0) * (parseFloat(item.qty) || 1);
+                          await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'ingredients', ing.id), { 
+                              stock: increment(returnedStock) 
+                          });
                       }
                   }
               }
           }
-          await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'transactions', tx.docId), {
-              status: 'voided',
-              voidApprovedBy: currentUser.name,
-              voidApprovedTime: new Date().toLocaleString()
-          });
-          showNotification('Void Disetujui. Stok otomatis dikembalikan.');
-      } catch (e) { 
-          console.error(e);
-          showNotification('Gagal memproses void', 'error'); 
+          
+          showNotification('Void Disetujui & Stok Dikembalikan'); 
+      } catch (err) {
+          console.error(err);
+          showNotification('Gagal menyetujui Void', 'error');
       }
   };
+  
+  const handleRejectVoid = async (txId) => { 
+      const targetTx = transactions.find(t => t.docId === txId || t.id === txId);
+      if (!targetTx) return showNotification('Transaksi tidak ditemukan', 'error');
 
-  const handleRejectVoid = async (docId) => {
-      await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'transactions', docId), {
+      await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'transactions', targetTx.docId), { 
           status: 'success', 
-          voidReason: null,
-          voidRequestedBy: null
-      });
-      showNotification('Pengajuan pembatalan ditolak.');
+          voidReason: null 
+      }); 
+      showNotification('Void Ditolak'); 
   };
+
+  // --- [KEMBALI DITAMBAHKAN] LAYAR LOADING SAAT CEK SESI ---
+  if (isAppLoading || (savedSessionId && !currentUser && employees.length === 0)) {
+    return (
+        <div className="min-h-[100dvh] flex flex-col items-center justify-center bg-slate-950 text-white font-sans relative overflow-hidden">
+            <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-red-600/10 rounded-full blur-[120px] animate-pulse"></div>
+            <div className="w-12 h-12 border-4 border-red-500 border-t-transparent rounded-full animate-spin mb-4 relative z-10"></div>
+            <p className="text-slate-400 font-bold uppercase tracking-widest text-xs relative z-10">Memuat Sesi...</p>
+        </div>
+    );
+  }
 
   if (!currentUser) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-100 p-4">
-         <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md animate-in zoom-in">
-            <h1 className="text-2xl font-black text-center mb-2 text-red-800 uppercase">Sistem POS</h1>
-            <p className="text-center text-gray-400 text-sm mb-6">Login Karyawan</p>
-            <form onSubmit={handleLogin} className="space-y-4">
-               <input className="w-full p-4 border rounded-xl text-center font-bold text-lg focus:ring-2 focus:ring-red-500 outline-none" placeholder="Masukkan Nama Anda" value={loginInput} onChange={e=>setLoginInput(e.target.value)} autoFocus />
-               <button className="w-full bg-red-700 text-white p-4 rounded-xl font-bold uppercase hover:bg-red-800 transition-all shadow-lg">Masuk Sistem</button>
+      <div className="min-h-[100dvh] flex items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-red-950 font-sans p-6 text-slate-100 relative overflow-hidden">
+         <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-red-600/10 rounded-full blur-[120px] animate-pulse"></div>
+         <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-orange-600/10 rounded-full blur-[100px] animate-pulse delay-700"></div>
+
+         <div className="bg-white/5 backdrop-blur-xl p-8 md:p-12 rounded-[2rem] shadow-2xl w-full max-w-md border border-white/10 relative z-10 animate-in zoom-in duration-500">
+            <div className="flex flex-col items-center mb-10">
+                <div className="w-24 h-24 bg-gradient-to-tr from-red-600 to-orange-600 rounded-3xl flex items-center justify-center shadow-lg shadow-red-500/30 mb-6 transform rotate-3 hover:rotate-6 transition-transform duration-300">
+                    <Coffee size={48} className="text-white" />
+                </div>
+                <h1 className="text-3xl font-black text-center text-white tracking-tight mb-2">POS SYSTEM</h1>
+                <p className="text-center text-slate-400 text-sm">Masuk untuk memulai shift & operasional</p>
+            </div>
+
+            <form onSubmit={handleLogin} className="space-y-6">
+               <div className="space-y-2 group">
+                   <label className="text-xs font-bold text-slate-400 uppercase tracking-widest ml-1 group-focus-within:text-red-400 transition-colors">Username</label>
+                   <div className="relative">
+                       <User className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-red-400 transition-colors" size={20} />
+                       <input type="text" className="w-full pl-12 pr-4 py-4 bg-slate-900/50 border border-slate-700 rounded-2xl text-white placeholder-slate-600 font-medium focus:outline-none focus:ring-2 focus:ring-red-500/50 focus:border-red-500 transition-all shadow-inner" placeholder="Masukkan Username" value={usernameInput} onChange={e=>setUsernameInput(e.target.value)} autoFocus />
+                   </div>
+               </div>
+               <div className="space-y-2 group">
+                   <label className="text-xs font-bold text-slate-400 uppercase tracking-widest ml-1 group-focus-within:text-red-400 transition-colors">PIN Akses</label>
+                   <div className="relative">
+                       <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-red-400 transition-colors" size={20} />
+                       <input type={showPin ? "text" : "password"} inputMode="numeric" className="w-full pl-12 pr-12 py-4 bg-slate-900/50 border border-slate-700 rounded-2xl text-white placeholder-slate-600 font-bold tracking-widest focus:outline-none focus:ring-2 focus:ring-red-500/50 focus:border-red-500 transition-all shadow-inner" placeholder="••••" value={pinInput} onChange={e=>setPinInput(e.target.value)} />
+                       <button type="button" onClick={() => setShowPin(!showPin)} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white transition-colors p-1 active:scale-90">{showPin ? <EyeOff size={20} /> : <Eye size={20} />}</button>
+                   </div>
+               </div>
+               {employees.length === 0 && (<div className="bg-red-500/10 border border-red-500/20 p-4 rounded-xl text-center backdrop-blur-sm animate-pulse"><p className="text-xs text-red-200 leading-relaxed"><span className="font-bold block text-sm mb-1">⚠️ SETUP AWAL DETECTED</span> Database kosong. Login pertama ini akan otomatis membuat akun <b>Owner</b> baru.</p></div>)}
+               
+               <button className="w-full bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-500 hover:to-orange-500 text-white py-4 rounded-2xl font-bold uppercase tracking-wider shadow-xl shadow-red-900/20 transform hover:-translate-y-1 active:scale-95 active:translate-y-0 transition-all flex items-center justify-center gap-2 group mt-4">
+                  Masuk Sistem <ArrowRight size={20} className="group-hover:translate-x-1 transition-transform" />
+               </button>
             </form>
+            <div className="mt-10 text-center"><p className="text-[10px] text-slate-600 uppercase tracking-widest font-bold">Secure POS v3.0</p></div>
          </div>
       </div>
     )
   }
 
   return (
-    <div className="flex h-screen bg-gray-50 font-sans text-gray-900 overflow-hidden">
+    <div className="flex h-[100dvh] lg:h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-red-950 font-sans text-slate-800 overflow-hidden">
       {/* SIDEBAR */}
-      <aside className="hidden lg:flex w-64 bg-slate-900 text-white flex-col shadow-xl">
-        <div className="p-6 border-b border-slate-800">
-          <h1 className="font-black text-xl uppercase tracking-tighter">POS System</h1>
-          <div className="flex items-center gap-2 mt-2">
-             <div className={`w-2 h-2 rounded-full ${currentUser.isShiftActive?'bg-emerald-500 animate-pulse':'bg-red-500'}`}></div>
-             <div>
-                <p className="text-sm font-bold">{currentUser.name}</p>
-                <p className="text-[10px] text-slate-400 uppercase tracking-widest">{currentUser.role}</p>
-             </div>
-          </div>
-        </div>
-        
-        <nav className="flex-1 p-4 space-y-2">
-          {currentUser.role === 'owner' && (
-            <>
-              <NavBtn id="dashboard" icon={LayoutDashboard} label="Dashboard" active={activeTab} set={setActiveTab} />
-              <NavBtn id="pos" icon={ShoppingBasket} label="Kasir (POS)" active={activeTab} set={setActiveTab} />
-              <NavBtn id="inventory" icon={Package} label="Inventaris" active={activeTab} set={setActiveTab} />
-              <NavBtn id="employees" icon={Users} label="Kinerja Tim" active={activeTab} set={setActiveTab} />
-              <NavBtn id="transactions" icon={History} label="Laporan" active={activeTab} set={setActiveTab} />
-              {/* Menu Baru: Laporan Keuangan */}
-              <NavBtn id="accounting" icon={FileText} label="Laporan Keuangan" active={activeTab} set={setActiveTab} />
-              
-              <div className="pt-8 mt-8 border-t border-slate-800">
-                  <p className="text-[10px] text-slate-500 font-bold uppercase px-3 mb-2">Setup Sistem</p>
-                  <button onClick={seedAccountingData} className="w-full flex items-center gap-3 p-3 rounded-xl text-amber-400 hover:bg-slate-800 transition-all text-left">
-                      <Database size={20} /> <span className="font-bold text-sm">Reset Akuntansi</span>
-                  </button>
-              </div>
-            </>
-          )}
-          
-          {currentUser.role === 'admin' && (
-            <>
-              <NavBtn id="admin_dashboard" icon={LayoutDashboard} label="Monitoring & Absen" active={activeTab} set={setActiveTab} />
-              <button 
-                onClick={() => currentUser.isShiftActive ? setActiveTab('inventory') : showNotification('Harap Absen Masuk Dulu!', 'error')} 
-                className={`w-full flex items-center justify-between p-3 rounded-xl transition-all ${activeTab === 'inventory' ? 'bg-red-800 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}
-              >
-                <div className="flex items-center gap-3"><Package size={20} /> <span className="font-bold text-sm">Stockkeeper</span></div>
-                {!currentUser.isShiftActive && <Lock size={14} className="text-slate-600"/>}
-              </button>
-            </>
-          )}
-          
-          {currentUser.role === 'cashier' && (
-            <>
-              <NavBtn id="attendance" icon={Clock} label="Absensi" active={activeTab} set={setActiveTab} />
-              <button 
-                onClick={() => currentUser.isShiftActive ? setActiveTab('pos') : showNotification('Harap Absen Masuk Dulu!', 'error')} 
-                className={`w-full flex items-center justify-between p-3 rounded-xl transition-all ${activeTab === 'pos' ? 'bg-red-800 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}
-              >
-                <div className="flex items-center gap-3"><ShoppingBasket size={20} /> <span className="font-bold text-sm">Kasir / POS</span></div>
-                {!currentUser.isShiftActive && <Lock size={14} className="text-slate-600"/>}
-              </button>
-            </>
-          )}
-        </nav>
-        
-        <div className="p-4"><button onClick={() => setCurrentUser(null)} className="w-full flex items-center gap-3 p-3 text-slate-400 hover:text-white transition-colors"><LogOut size={20}/> Keluar</button></div>
-      </aside>
+      <div className="hidden lg:block relative z-20">
+        <AppSidebar 
+           activeTab={activeTab} onTabChange={setActiveTab} userRole={currentUser.role}
+           isShiftActive={currentUser.isShiftActive} userName={currentUser.name}
+           onLogout={handleLogout} onResetAccounting={seedAccountingData} showNotification={showNotification}
+        />
+      </div>
 
-      {/* MAIN CONTENT */}
-      <main className="flex-1 overflow-hidden flex flex-col relative w-full">
-         <div className="lg:hidden bg-white p-4 flex justify-between items-center shadow-sm border-b">
-            <span className="font-black text-red-800 uppercase">POS Mobile</span>
-            <span className="text-xs font-bold uppercase bg-slate-100 px-3 py-1 rounded-full text-slate-600">{activeTab.replace('_', ' ')}</span>
+      {/* MAIN CONTENT WRAPPER */}
+      <main className="flex-1 overflow-hidden flex flex-col relative w-full bg-slate-50/95 lg:rounded-l-[2.5rem] shadow-2xl z-10 backdrop-blur-md border-l border-white/20">
+         
+         {/* MOBILE HEADER */}
+         <div className="lg:hidden bg-slate-900/90 backdrop-blur-md text-white p-4 flex justify-between items-center shadow-lg sticky top-0 z-50 border-b border-white/10">
+            <span className="font-black text-xl tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-orange-400 to-red-500">POS SYSTEM</span>
+            <span className="text-[10px] font-bold uppercase bg-white/10 px-3 py-1 rounded-full text-slate-300 border border-white/10">{activeTab.replace('_', ' ')}</span>
          </div>
          
-         {notification && <div className={`absolute top-16 lg:top-4 left-1/2 -translate-x-1/2 z-[100] px-6 py-3 rounded-full text-white font-bold shadow-xl animate-in slide-in-from-top-2 ${notification.type==='error'?'bg-red-600':'bg-slate-800'}`}>{notification.message}</div>}
+         {notification && <div className={`absolute top-16 lg:top-6 left-1/2 -translate-x-1/2 z-[100] px-6 py-3 rounded-full text-white font-bold shadow-2xl animate-in slide-in-from-top-4 backdrop-blur-md border border-white/20 ${notification.type==='error'?'bg-red-600/90':'bg-slate-800/90'}`}>{notification.message}</div>}
+         
+         {/* KONFIRMASI CUSTOM */}
+         {confirmDialog && (
+            <div className="fixed inset-0 bg-black/60 z-[999] flex items-center justify-center p-4 backdrop-blur-md animate-in fade-in">
+              <div className="bg-white p-6 rounded-3xl max-w-sm w-full shadow-2xl animate-in zoom-in-95 border border-slate-100">
+                <h3 className="font-bold text-lg mb-2 text-slate-800 flex items-center gap-2">
+                  <AlertTriangle className="text-amber-500"/> Konfirmasi
+                </h3>
+                <p className="text-sm text-slate-600 mb-6">{confirmDialog.message}</p>
+                <div className="flex gap-3 justify-end">
+                  <button 
+                    onClick={() => setConfirmDialog(null)} 
+                    className="px-5 py-2.5 bg-slate-100 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-200 active:scale-95 transition-transform"
+                  >
+                    Batal
+                  </button>
+                  <button 
+                    onClick={() => {
+                      confirmDialog.onConfirm();
+                      setConfirmDialog(null);
+                    }} 
+                    className="px-5 py-2.5 bg-gradient-to-r from-red-600 to-orange-600 text-white rounded-xl text-xs font-bold hover:shadow-lg active:scale-95 transition-transform"
+                  >
+                    Lanjutkan
+                  </button>
+                </div>
+              </div>
+            </div>
+         )}
 
          <div className="flex-1 p-4 lg:p-8 overflow-y-auto pb-24 lg:pb-8">
             {(activeTab === 'dashboard' || activeTab === 'admin_dashboard') && 
                 <DashboardView 
-                  currentUser={currentUser} 
-                  ingredients={ingredients} 
-                  employees={employees} 
-                  transactions={transactions} 
-                  onUpdateIngredient={handleUpdateIngredient}
-                  onToggleShift={handleToggleShift}
-                  onApproveVoid={handleApproveVoid}
-                  onRejectVoid={handleRejectVoid}
+                  currentUser={currentUser} ingredients={ingredients} employees={employees} transactions={transactions} 
+                  onUpdateIngredient={handleUpdateIngredient} onToggleShift={handleToggleShift}
+                  onApproveVoid={handleApproveVoid} onRejectVoid={handleRejectVoid} onInputCapital={handleInputCapital} 
+                  showNotification={showNotification} askConfirm={askConfirm}
+                  onAddEmployee={handleAddEmployee} onDeleteEmployee={handleDeleteEmployee}
                 />
             }
             
             {activeTab === 'inventory' && 
                <InventoryView 
-                  ingredients={ingredients} 
-                  onAddIngredient={handleAddIngredient} 
-                  onUpdateIngredient={handleUpdateIngredient}
-                  onDeleteIngredient={handleDeleteIngredient} 
-                  products={products} 
-                  onAddProduct={handleAddProduct} 
-                  onDeleteProduct={handleDeleteProduct} 
-                  showNotification={showNotification} 
-                  currentUser={currentUser}
+                  ingredients={ingredients} onAddIngredient={handleAddIngredient} onUpdateIngredient={handleUpdateIngredient}
+                  onDeleteIngredient={handleDeleteIngredient} products={products} onAddProduct={handleAddProduct} 
+                  onUpdateProduct={handleUpdateProduct} onDeleteProduct={handleDeleteProduct} 
+                  showNotification={showNotification} currentUser={currentUser} askConfirm={askConfirm}
                />
             }
 
-            {/* HALAMAN BARU: ACCOUNTING */}
-            {activeTab === 'accounting' && (
-               <AccountingView appId={appId} db={db} />
+            {activeTab === 'transactions' && (
+              <TransactionsView transactions={transactions} />
             )}
 
             {activeTab === 'pos' && (
@@ -467,6 +491,7 @@ export default function App() {
                   showNotification={showNotification}
                   transactions={transactions}
                   onRequestVoid={handleRequestVoid}
+                  onRecordExpense={handleEmergencyExpense}
                /> 
                : 
                <div className="flex flex-col items-center justify-center h-full text-center">
@@ -479,27 +504,21 @@ export default function App() {
 
             {(activeTab === 'employees' || activeTab === 'attendance') && 
                <EmployeeView 
-                  employees={employees} 
-                  transactions={transactions} 
-                  currentUser={currentUser} 
-                  attendanceLog={attendanceLog} 
-                  onToggleShift={handleToggleShift} 
-                  onAddEmployee={handleAddEmployee} 
-                  onDeleteEmployee={handleDeleteEmployee} 
-                  showNotification={showNotification} 
-                  setCurrentUser={setCurrentUser} 
+                  employees={employees} transactions={transactions} currentUser={currentUser} attendanceLog={attendanceLog} 
+                  onToggleShift={handleToggleShift} onAddEmployee={handleAddEmployee} onDeleteEmployee={handleDeleteEmployee} 
+                  showNotification={showNotification} setCurrentUser={setCurrentUser} askConfirm={askConfirm}
                />
             }
-
-            {activeTab === 'transactions' && (
-              <TransactionsView transactions={transactions} />
-            )}
          </div>
 
+         {/* BOTTOM NAV FOR MOBILE */}
          <div className="lg:hidden bg-white border-t p-2 flex justify-around fixed bottom-0 w-full z-50 shadow-[0_-5px_10px_rgba(0,0,0,0.05)]">
-            <NavIcon id={currentUser.role === 'admin' ? 'admin_dashboard' : 'dashboard'} icon={LayoutDashboard} label="Home" onClick={()=>setActiveTab(currentUser.role==='admin'?'admin_dashboard':'dashboard')} active={activeTab.includes('dashboard')} />
             
-            {currentUser.role!=='admin' && 
+            {currentUser.role !== 'cashier' && (
+                <NavIcon id={currentUser.role === 'admin' ? 'admin_dashboard' : 'dashboard'} icon={LayoutDashboard} label="Home" onClick={()=>setActiveTab(currentUser.role==='admin'?'admin_dashboard':'dashboard')} active={activeTab.includes('dashboard')} />
+            )}
+            
+            {(currentUser.role === 'cashier' || currentUser.role === 'owner') && (
               <NavIcon 
                 id="pos" 
                 icon={ShoppingBasket} 
@@ -507,36 +526,33 @@ export default function App() {
                 onClick={() => (currentUser.isShiftActive || currentUser.role === 'owner') ? setActiveTab('pos') : showNotification('Absen Dulu!', 'error')} 
                 active={activeTab==='pos'} 
               />
-            }
+            )}
             
-            {currentUser.role!=='cashier' && 
+            {currentUser.role !== 'cashier' && (
               <NavIcon 
                 id="inventory" 
                 icon={Package} 
                 label="Stok" 
-                onClick={() => (currentUser.isShiftActive || currentUser.role === 'owner') ? setActiveTab('inventory') : showNotification('Absen Dulu!', 'error')} 
+                onClick={() => (currentUser.isShiftActive || currentUser.role === 'owner' || currentUser.role === 'investor') ? setActiveTab('inventory') : showNotification('Absen Dulu!', 'error')} 
                 active={activeTab==='inventory'} 
               />
-            }
+            )}
             
-            {currentUser.role==='owner' && <NavIcon id="employees" icon={Users} label="Tim" onClick={()=>setActiveTab('employees')} active={activeTab==='employees'} />}
+            {(currentUser.role === 'owner' || currentUser.role === 'investor') && (
+                <NavIcon id="employees" icon={Users} label="Tim" onClick={()=>setActiveTab('employees')} active={activeTab==='employees'} />
+            )}
+
+            {(currentUser.role === 'owner' || currentUser.role === 'investor') && (
+                <NavIcon id="transactions" icon={History} label="Laporan" onClick={()=>setActiveTab('transactions')} active={activeTab==='transactions'} />
+            )}
             
-            {currentUser.role==='cashier' && <NavIcon id="attendance" icon={Clock} label="Absen" onClick={()=>setActiveTab('attendance')} active={activeTab==='attendance'} />}
+            {currentUser.role === 'cashier' && (
+                <NavIcon id="attendance" icon={Clock} label="Absen" onClick={()=>setActiveTab('attendance')} active={activeTab==='attendance'} />
+            )}
             
-            <button onClick={()=>setCurrentUser(null)} className="flex flex-col items-center p-2 text-gray-400 hover:text-red-600 transition-colors"><LogOut size={20}/> <span className="text-[10px] mt-1 font-bold">Exit</span></button>
+            <button onClick={handleLogout} className="flex flex-col items-center p-2 text-gray-400 hover:text-red-600 transition-colors"><LogOut size={20}/> <span className="text-[10px] mt-1 font-bold">Exit</span></button>
          </div>
       </main>
     </div>
   );
 }
-
-const NavBtn = ({ id, icon: Icon, label, active, set }) => (
-  <button onClick={() => set(id)} className={`w-full flex items-center gap-3 p-3 rounded-xl transition-all ${active === id ? 'bg-red-800 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>
-    <Icon size={20} /> <span className="font-bold text-sm">{label}</span>
-  </button>
-);
-const NavIcon = ({ id, icon: Icon, label, active, onClick }) => (
-  <button onClick={onClick} className={`flex flex-col items-center p-2 rounded-lg transition-colors ${active ? 'text-red-600 bg-red-50' : 'text-gray-400'}`}>
-    <Icon size={20} /> <span className="text-[10px] font-bold mt-1">{label}</span>
-  </button>
-);

@@ -2,7 +2,7 @@
 
 Aplikasi web kasir (Point of Sale) dan manajemen inventaris real-time berbasis cloud yang dirancang untuk kecepatan operasional bisnis (UMKM, F&B, Retail). Dibangun menggunakan ekosistem React.js dan Firebase, dengan dukungan integrasi pencetakan struk thermal.
 
-🔗 Live Demo: https://qss-bakmie.web.app[Masukkan Link Hosting Firebase Kamu di sini, cth: https://qss-bakmie.web.app]
+🔗 Live Demo: https://qss-bakmie.web.app
 
 🚀 Fitur Utama
 
@@ -32,7 +32,6 @@ Workflow: AI-Assisted Development (Prompting, Refactoring, Debugging).
 
 **1. Halaman Login & PIN Akses**
 ![Halaman Login](screenshots/login.png)
-[Gambar Halaman Kasir / Transaksi]
 
 **2. Halaman dashboard**
 ![Halaman dashboard](screenshots/dashboardview.png)
@@ -42,6 +41,7 @@ Workflow: AI-Assisted Development (Prompting, Refactoring, Debugging).
 
 **4 POSview**
 ![halaman POS](screenshots/POSview.PNG)
+
 
 **5. laporan**
 ![Laporan View](screenshots/laporan.PNG)

@@ -30,13 +30,25 @@ Workflow: AI-Assisted Development (Prompting, Refactoring, Debugging).
 
 (Tips: Nanti ganti teks di bawah ini dengan gambar asli aplikasimu saat di-upload ke GitHub)
 
-[Gambar Halaman Login/PIN]
-
+**1. Halaman Login & PIN Akses**
+![Halaman Login](screenshots/login.png)
 [Gambar Halaman Kasir / Transaksi]
 
-[Gambar Dashboard Owner / Manajemen Stok]
+**2. Halaman dashboard**
+![Halaman dashboard](screenshots/dashboardview.png)
 
-[Gambar Preview Struk Kasir]
+**3. HAlaman Inventory**
+![Halaman Inventory](screenshots/inventoryview.PNG)
+
+**4 POSview**
+![halaman POS](screenshots/POSview.PNG)
+
+**5. laporan**
+![Laporan View](screenshots/laporan.PNG)
+
+**6. karyawan**
+![karyawan View](screenshots/kinerjatim.PNG)
+
 
 💻 Cara Menjalankan di Komputer Lokal (Local Development)
 
